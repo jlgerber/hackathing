@@ -1,0 +1,230 @@
+#!/usr/bin/python
+import os
+import shutil
+from argparse import ArgumentParser
+import yaml
+
+
+def getPaths(var):
+    # get directory structure based on yaml key, value
+    paths = []
+    while var:
+        var1 = []
+        for e_var in var:
+            for key, value in e_var.iteritems():
+                for e_value in value:
+                    tmp = {}
+                    if isinstance(e_value, str):
+                        paths.append('%s/%s' % (key, e_value))
+                    else:
+                        # rename parents by adding previous level parent
+                        old_parent = e_value.keys()[0]
+                        tmp['%s/%s' % (key, old_parent)] = e_value[old_parent]
+                        var1.append(tmp)
+        var = var1
+    return paths
+
+
+def list_projects(project_path, optional_types):
+    # sub commands 1
+    if not optional_types:
+        print 'list'
+        print os.listdir(project_path)
+    else:
+        valid_prj_list = []
+        optional_types_list = optional_types.split(',')
+
+        for e_prj_dir in os.listdir(project_path):
+            path = project_path + '/' + e_prj_dir
+            prj_sub_dirs = os.listdir(path)
+            for e_op_typ in optional_types_list:
+                if e_op_typ in prj_sub_dirs:
+                    valid_prj_list.append(e_prj_dir)
+                    break
+        print 'list'
+        print valid_prj_list
+
+
+def create_dirs(paths, project_path, NAME):
+    # sub commands 2
+    # create folder structure in project path
+    for e_path in paths:
+        path = project_path + '/' + NAME + '/' + e_path
+
+        # check wether path contains file or not
+        if not '.' in os.path.basename(path):
+            if not os.path.exists(path):
+                os.makedirs(path)
+        else:
+            dir_path = os.path.dirname(path)
+            if not os.path.exists(dir_path):
+                os.makedirs(dir_path)
+            with open(path, 'w') as fid:
+                pass
+        print path
+
+
+def delete_projects(project_path, optional_types):
+    # sub commands 3
+    valid_prj_list = []
+    if not optional_types:
+        for e in os.listdir(project_path):
+            valid_prj_list.append(project_path + '/' + e)
+    else:
+        optional_types_list = optional_types.split(',')
+        # get projects to delete
+        for e_prj_dir in os.listdir(project_path):
+            path = project_path + '/' + e_prj_dir
+            prj_sub_dirs = os.listdir(path)
+            for e_op_typ in optional_types_list:
+                if e_op_typ in prj_sub_dirs:
+                    valid_prj_list.append(project_path + '/' + e_prj_dir)
+                    break
+    for e_v_prj in valid_prj_list:
+        print e_v_prj
+        # shutil.rmtree('/dd/home/ssreeram/yaml/projects/1')
+
+
+def list_types_projects():
+    # sub commands 4
+    print get_yaml_data().keys()
+
+
+def describe_projects(paths):
+    # sub commands 5
+    # print data in yaml format
+    def chk(length):
+        # return line with tabs as per input
+        line = ''
+        if length == 1:
+            return line
+        for i in range(length - 2):
+            line = line + '    '
+        return line + '  - '
+
+    paths = sorted(paths)
+    prev_item = []
+    for e in paths:
+        item_split = e.split('/')
+        item_len = len(item_split)
+        if '/'.join(e.split('/')[:-1]) not in prev_item:
+            print chk(item_len - 1) + item_split[-2] + ':'
+            prev_item.append('/'.join(e.split('/')[:-1]))
+        print chk(item_len) + item_split[-1]
+
+
+def get_yaml_data():
+    # function will return yaml data.
+    # search for all yaml files based on "PROJMAN_TEMPLATES" environment path and return key, values.
+
+    def keys_validation(yaml_file_path, yaml_data):
+        # function will return new key & its value of yaml file.
+        yaml_tmp_data = {}
+        with open(yaml_file_path, 'r') as info:
+            yaml_tmp_data = yaml.load(info)
+
+        new_key_info = {}
+        # return new key information
+        for key, value in yaml_tmp_data.iteritems():
+            if key not in yaml_data.keys():
+                new_key_info[key] = value
+        return new_key_info
+
+    # return unique keys, values from yaml files based on "PROJMAN_TEMPLATES" value
+    yaml_data = {}
+    valid_key_data = {}
+    info = os.getenv('PROJMAN_TEMPLATES')
+    env_paths = info.split(':')
+    for e_path in env_paths:
+        yaml_files = os.listdir(e_path)
+        for e_y_file in yaml_files:
+            if e_y_file.endswith('.yaml'):
+                yaml_file_path = e_path + '/' + e_y_file
+                valid_key_data = keys_validation(yaml_file_path, yaml_data)
+                if valid_key_data:
+                    yaml_data.update(valid_key_data)
+
+    return yaml_data
+
+
+def process(args):
+    yaml_data = get_yaml_data()
+
+    # sub_command process
+    if args.sub_command == 'create' or args.sub_command == 'describe':
+        for key, value in yaml_data.iteritems():
+            var = {}
+            if args.engine_type == 'all':
+                var[key] = value
+            elif key == args.engine_type:
+                var[key] = value
+            else:
+                pass
+            if var:
+                if args.sub_command == 'create':
+                    create_dirs(getPaths([var]), args.project_path, args.NAME)
+
+                if args.sub_command == 'describe':
+                    describe_projects(getPaths([var]))
+
+    elif args.sub_command == 'list':
+        list_projects(args.project_path, args.optional_types)
+
+    elif args.sub_command == 'delete':
+        delete_projects(args.project_path, args.optional_types)
+
+    elif args.sub_command == 'types':
+        list_types_projects()
+    else:
+        pass
+
+
+def parse_arguments():
+    """
+    process the arguments
+    """
+    parser = ArgumentParser(description="""Sample usage :
+                                           projectManager --t ENGINE_TYPE --p PROJECT_PATH""")
+
+    parser.add_argument('-t', '--type', type=str,
+                        dest='engine_type', default=None,
+                        help=' maya, hudini & nuke')
+
+    parser.add_argument('-p', '--path', type=str,
+                        dest='project_path', default=None,
+                        help='The base path in which to create the project. If not supplied, it uses a default '
+                             'project path')
+
+    parser.add_argument("sub_command", type=str,
+                        help="list or create or delete or types or describe")
+
+    parser.add_argument("-o", "--o", type=str, dest='optional_types',
+                        help='optionally restricting the list to a specific type or types')
+
+    parser.add_argument("NAME", type=str,
+                        help="The name of the project to create, delete, or run types on.",
+                        default=None)
+
+    args = parser.parse_args()
+
+    # validations
+    if not args.engine_type:
+        args.engine_type = 'all'
+
+    if not args.project_path:
+        if os.getenv('PROJMAN_LOCATION'):
+            args.project_path = os.getenv('PROJMAN_LOCATION')
+        else:
+            args.project_path = 'default_path'
+
+    if not args.sub_command:
+        parse.error("\n Please specify sub_command")
+
+    if not args.NAME and args.sub_command == 'create':
+        parse.error("\n Please specify NAME")
+
+    return args
+
+
+if __name__ == '__main__':
+    process(parse_arguments())
